@@ -1,4 +1,4 @@
-# csv2dbf & dbf2csv
+# csv2dbf & dbf2csv, programs that convert between CSV and DBF (dBase III) formats.
 -----------------------------------------------------------------------------
 # csv2dbf
 ```text
