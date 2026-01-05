@@ -31,7 +31,7 @@ var (
 
 // Constants for program info
 const (
-	AppVersion = "1.1" // Matched version
+	AppVersion = "1.2.0" // Matched version
 	AppAuthor  = "dabiaoge"
 )
 
@@ -68,10 +68,10 @@ type FieldInfo struct {
 func init() {
 	// Define command line flags
 	flag.StringVar(&flagDelimiter, "f", ",", "Output field delimiter (single char)")
-	flag.StringVar(&flagQuote, "q", "\"", "Quote character (standard CSV uses \")")
-	flag.StringVar(&flagNewline, "l", "\\n", "Output line ending (e.g. '\\n', '\\r\\n')")
+	flag.StringVar(&flagQuote, "q", "\"", "Quote character")
+	flag.StringVar(&flagNewline, "l", "\n", "Output line ending (e.g. \"\\n\", \"\\r\\n\")")
 	flag.StringVar(&flagEncoding, "e", "UTF-8", "Source DBF Encoding (UTF-8, GBK, GB18030)")
-	flag.IntVar(&flagProgress, "c", 0, "Show progress every N rows (0 = disable output)")
+	flag.IntVar(&flagProgress, "c", 0, "Show progress every N rows (default 0, disable output)")
 
 	// Custom usage message
 	flag.Usage = func() {
@@ -81,7 +81,6 @@ func init() {
 		fmt.Printf("Usage: %s [options] <dbf_file1> [dbf_file2] ...\n\n", os.Args[0])
 		fmt.Println("Options:")
 		flag.PrintDefaults()
-		fmt.Println("\nNote: Converts DBF (binary) to standard CSV (UTF-8).")
 		fmt.Println("\nExamples:")
 		fmt.Printf("  %s data.dbf\n", os.Args[0])
 		fmt.Printf("  %s -e GBK -c 5000 data.dbf\n", os.Args[0])
@@ -169,7 +168,7 @@ func getEncoding(name string) encoding.Encoding {
 func convertDBFtoCSV(dbfPath string, comma rune, enc encoding.Encoding) error {
 	// --- Pass 1: Read Structure ---
 	fmt.Println("  [1/2] Reading DBF structure...")
-	
+
 	f, err := os.Open(dbfPath)
 	if err != nil {
 		return err
@@ -195,9 +194,9 @@ func convertDBFtoCSV(dbfPath string, comma rune, enc encoding.Encoding) error {
 	bufWriter := bufio.NewWriterSize(csvFile, 4*1024*1024)
 	w := csv.NewWriter(bufWriter)
 	w.Comma = comma
-	
+
 	// Handle newline flag roughly (encoding/csv mostly supports \n or \r\n via UseCRLF)
-	if strings.Contains(flagNewline, "\r\n") {
+	if strings.Contains(flagNewline, "\\r\\n") {
 		w.UseCRLF = true
 	}
 
@@ -212,7 +211,7 @@ func convertDBFtoCSV(dbfPath string, comma rune, enc encoding.Encoding) error {
 
 	// --- Pass 2: Read Data & Write ---
 	fmt.Println("  [2/2] Exporting records...")
-	
+
 	// Move file pointer to start of data
 	if _, err := f.Seek(int64(header.HeaderLen), 0); err != nil {
 		return fmt.Errorf("failed to seek to data: %w", err)
@@ -251,7 +250,7 @@ func readDBFHeaderAndFields(r io.Reader, enc encoding.Encoding) (DBFHeader, []Fi
 
 		// Clean field name (remove nulls)
 		rawName := bytes.TrimRight(df.Name[:], "\x00")
-		
+
 		// Decode field name (in case DBF field names use specific encoding, though usually ASCII)
 		// Usually DBF field names are ASCII, but we play safe if users use -e
 		nameStr, _, _ := transform.Bytes(decoder, rawName)
@@ -273,7 +272,7 @@ func writeCSVRecords(r io.Reader, w *csv.Writer, h DBFHeader, fields []FieldInfo
 	decoder := enc.NewDecoder()
 
 	var processed uint32
-	
+
 	for i := uint32(0); i < h.NumRecs; i++ {
 		// Read exact record length
 		_, err := io.ReadFull(r, recordBuf)
@@ -297,15 +296,15 @@ func writeCSVRecords(r io.Reader, w *csv.Writer, h DBFHeader, fields []FieldInfo
 			if offset+field.Length > len(recordBuf) {
 				break
 			}
-			
+
 			// Extract raw bytes for field
 			rawField := recordBuf[offset : offset+field.Length]
-			
+
 			// Trim spaces (DBF pads with spaces)
-			// Trimming must happen *after* decoding ideally, but for GBK/UTF8 
+			// Trimming must happen *after* decoding ideally, but for GBK/UTF8
 			// spaces are usually safe to trim before if standard ASCII space.
 			// However, correct flow is Decode -> Trim to handle multibyte spaces if any.
-			
+
 			decodedBytes, _, err := transform.Bytes(decoder, rawField)
 			if err != nil {
 				// Fallback to raw bytes if decode fails

@@ -30,7 +30,7 @@ var (
 
 // Constants for program info
 const (
-	AppVersion = "1.1" // Updated version
+	AppVersion = "1.2.0" // Updated version
 	AppAuthor  = "dabioage"
 )
 
@@ -67,12 +67,10 @@ type FieldInfo struct {
 func init() {
 	// Define command line flags
 	flag.StringVar(&flagDelimiter, "f", ",", "Field delimiter (single char)")
-	flag.StringVar(&flagQuote, "q", "\"", "Quote character (ignored, standard CSV uses \")")
-	flag.StringVar(&flagNewline, "l", "\\n", "Line ending (e.g. '\\n', '\\r\\n')")
+	flag.StringVar(&flagQuote, "q", "\"", "Quote character")
+	flag.StringVar(&flagNewline, "l", "\n", "Line ending (e.g. \"\\n\", \"\\r\\n\")")
 	flag.StringVar(&flagEncoding, "e", "UTF-8", "Encoding (UTF-8, GBK, GB18030)")
-	
-	// [New] Added -c flag definition
-	flag.IntVar(&flagProgress, "c", 0, "Show progress every N rows (0 = disable output)")
+	flag.IntVar(&flagProgress, "c", 0, "Show progress every N rows (default 0, disable output)")
 
 	// Custom usage message
 	flag.Usage = func() {
@@ -82,10 +80,9 @@ func init() {
 		fmt.Printf("Usage: %s [options] <csv_file1> [csv_file2] ...\n\n", os.Args[0])
 		fmt.Println("Options:")
 		flag.PrintDefaults()
-		fmt.Println("\nNote: Standard CSV parser enforces double-quotes (\") as the quote character.")
 		fmt.Println("\nExamples:")
 		fmt.Printf("  %s data.csv\n", os.Args[0])
-		fmt.Printf("  %s -e GBK -c 5000 data.csv\n", os.Args[0]) // Added example for -c
+		fmt.Printf("  %s -e GBK -c 5000 data.csv\n", os.Args[0])
 		fmt.Printf("  %s -f '|' data.csv\n", os.Args[0])
 	}
 }
