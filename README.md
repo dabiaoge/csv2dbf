@@ -3,7 +3,7 @@
 # csv2dbf
 ```text
 CSV2DBF Converter
-Version: 1.2.0
+Version: 1.2.1
 Author : dabioage
 
 Usage: csv2dbf [options] <csv_file1> [csv_file2] ...
