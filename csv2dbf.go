@@ -30,7 +30,7 @@ var (
 
 // Constants for program info
 const (
-	AppVersion = "1.2.0" // Updated version
+	AppVersion = "1.2.1"
 	AppAuthor  = "dabioage"
 )
 
@@ -99,6 +99,11 @@ func main() {
 
 	// Parse escaped characters in flags
 	delimiter := parseEscapedChar(flagDelimiter)
+	if delimiter == 0 {
+		fmt.Fprintf(os.Stderr, "Error: Invalid delimiter '%s'\n", flagDelimiter)
+		os.Exit(1)
+	}
+
 	quote := parseEscapedChar(flagQuote)
 
 	// Determine encoding
@@ -147,9 +152,14 @@ func parseEscapedChar(s string) rune {
 			return '"'
 		case '\'':
 			return '\''
+		case '0':
+			return 0
 		}
 	}
 	r, _ := utf8.DecodeRuneInString(s)
+	if r == utf8.RuneError {
+		return 0
+	}
 	return r
 }
 
@@ -219,7 +229,7 @@ func getCSVReader(f *os.File, comma rune, quote rune, enc encoding.Encoding) *cs
 
 	csvReader.FieldsPerRecord = -1
 	csvReader.LazyQuotes = true
-	csvReader.TrimLeadingSpace = true
+	csvReader.TrimLeadingSpace = false
 	return csvReader
 }
 
