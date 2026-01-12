@@ -8,6 +8,7 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"math"
 	"os"
 	"path/filepath"
 	"strings"
@@ -31,7 +32,7 @@ var (
 
 // Constants for program info
 const (
-	AppVersion = "1.2.0" // Matched version
+	AppVersion = "1.5.0"
 	AppAuthor  = "dabiaoge"
 )
 
@@ -42,19 +43,9 @@ type DBFHeader struct {
 	Month     byte     // 2-2
 	Day       byte     // 3-3
 	NumRecs   uint32   // 4-7
-	HeaderLen uint16   // 8-9 (32 + 32*n + 1)
+	HeaderLen uint16   // 8-9 (Position of first record)
 	RecLen    uint16   // 10-11
 	Reserved  [20]byte // 12-31
-}
-
-// DBFField represents the field descriptor structure (32 bytes)
-type DBFField struct {
-	Name      [11]byte // 0-10
-	Type      byte     // 11-11
-	Reserved  [4]byte  // 12-15
-	Len       byte     // 16-16
-	Dec       byte     // 17-17
-	Reserved2 [14]byte // 18-31
 }
 
 // FieldInfo holds internal metadata for a column
@@ -100,7 +91,6 @@ func main() {
 
 	// Parse escaped characters in flags
 	delimiter := parseEscapedChar(flagDelimiter)
-	// newline handling for CSV writer is limited in stdlib, but we handle basic CRLF check later
 
 	// Determine encoding
 	enc := getEncoding(flagEncoding)
@@ -167,19 +157,17 @@ func getEncoding(name string) encoding.Encoding {
 
 func convertDBFtoCSV(dbfPath string, comma rune, enc encoding.Encoding) error {
 	// --- Pass 1: Read Structure ---
-	fmt.Println("  [1/2] Reading DBF structure...")
-
 	f, err := os.Open(dbfPath)
 	if err != nil {
 		return err
 	}
 	defer f.Close()
 
-	header, fields, err := readDBFHeaderAndFields(f, enc)
+	header, fields, err := readStructure(f, enc)
 	if err != nil {
 		return err
 	}
-	fmt.Printf("  >> Fields: %d, Records: %d\n", len(fields), header.NumRecs)
+	fmt.Printf("  >> Version: 0x%02X, Records: %d, Fields: %d\n", header.Version, header.NumRecs, len(fields))
 
 	// --- Prepare CSV File ---
 	csvPath := strings.TrimSuffix(dbfPath, filepath.Ext(dbfPath)) + ".csv"
@@ -189,14 +177,12 @@ func convertDBFtoCSV(dbfPath string, comma rune, enc encoding.Encoding) error {
 	}
 	defer csvFile.Close()
 
-	// Setup CSV Writer
-	// Note: We use a buffer to improve write performance
+	// Setup CSV Writer with buffer
 	bufWriter := bufio.NewWriterSize(csvFile, 4*1024*1024)
 	w := csv.NewWriter(bufWriter)
 	w.Comma = comma
 
-	// Handle newline flag roughly (encoding/csv mostly supports \n or \r\n via UseCRLF)
-	if strings.Contains(flagNewline, "\\r\\n") {
+	if strings.Contains(flagNewline, "\r\n") {
 		w.UseCRLF = true
 	}
 
@@ -210,14 +196,14 @@ func convertDBFtoCSV(dbfPath string, comma rune, enc encoding.Encoding) error {
 	}
 
 	// --- Pass 2: Read Data & Write ---
-	fmt.Println("  [2/2] Exporting records...")
-
-	// Move file pointer to start of data
+	// Important: Seek exactly to HeaderLen.
+	// VFP files have a 263+ bytes backlink area between the field terminator (0x0D)
+	// and the actual data start. We must skip this area.
 	if _, err := f.Seek(int64(header.HeaderLen), 0); err != nil {
 		return fmt.Errorf("failed to seek to data: %w", err)
 	}
 
-	if err := writeCSVRecords(f, w, header, fields, enc); err != nil {
+	if err := writeRecords(f, w, header, fields, enc); err != nil {
 		return err
 	}
 
@@ -225,7 +211,10 @@ func convertDBFtoCSV(dbfPath string, comma rune, enc encoding.Encoding) error {
 	return bufWriter.Flush()
 }
 
-func readDBFHeaderAndFields(r io.Reader, enc encoding.Encoding) (DBFHeader, []FieldInfo, error) {
+// readStructure reads the DBF header and field definitions.
+// OPTIMIZATION: Instead of calculating field count from HeaderLen (which causes ghost columns in VFP),
+// we loop reading fields until the 0x0D terminator is found.
+func readStructure(r io.Reader, enc encoding.Encoding) (DBFHeader, []FieldInfo, error) {
 	var h DBFHeader
 	if err := binary.Read(r, binary.LittleEndian, &h); err != nil {
 		return h, nil, fmt.Errorf("failed to read header: %w", err)
@@ -236,37 +225,51 @@ func readDBFHeaderAndFields(r io.Reader, enc encoding.Encoding) (DBFHeader, []Fi
 		return h, nil, fmt.Errorf("invalid header length")
 	}
 
-	// Number of fields = (HeaderLen - 32 (Header) - 1 (Terminator)) / 32 (FieldDesc)
-	numFields := int(h.HeaderLen-32-1) / 32
-	fields := make([]FieldInfo, numFields)
-
+	var fields []FieldInfo
 	decoder := enc.NewDecoder()
+	maxFields := 4096 // Safety limit to prevent infinite loops on corrupted files
 
-	for i := 0; i < numFields; i++ {
-		var df DBFField
-		if err := binary.Read(r, binary.LittleEndian, &df); err != nil {
-			return h, nil, fmt.Errorf("failed to read field %d: %w", i, err)
+	for i := 0; i < maxFields; i++ {
+		// Read first byte to check for terminator (0x0D)
+		var marker [1]byte
+		if _, err := r.Read(marker[:]); err != nil {
+			return h, nil, fmt.Errorf("error reading field marker: %w", err)
 		}
 
-		// Clean field name (remove nulls)
-		rawName := bytes.TrimRight(df.Name[:], "\x00")
+		if marker[0] == 0x0D {
+			// End of field definitions
+			break
+		}
 
-		// Decode field name (in case DBF field names use specific encoding, though usually ASCII)
-		// Usually DBF field names are ASCII, but we play safe if users use -e
+		// Read remaining 31 bytes of the 32-byte field structure
+		var remaining [31]byte
+		if _, err := io.ReadFull(r, remaining[:]); err != nil {
+			return h, nil, fmt.Errorf("error reading field definition: %w", err)
+		}
+
+		// Reconstruct buffer
+		fieldBuf := append(marker[:], remaining[:]...)
+
+		// Field Name (bytes 0-10)
+		rawName := bytes.TrimRight(fieldBuf[0:11], "\x00")
+		// Use decoder for field names (usually ASCII, but helps with specific encodings)
 		nameStr, _, _ := transform.Bytes(decoder, rawName)
 
-		fields[i] = FieldInfo{
+		// Create field info
+		// Byte 11: Type, Byte 16: Length, Byte 17: Decimal count
+		info := FieldInfo{
 			Name:   string(nameStr),
-			Type:   df.Type,
-			Length: int(df.Len),
-			Dec:    int(df.Dec),
+			Type:   fieldBuf[11],
+			Length: int(fieldBuf[16]),
+			Dec:    int(fieldBuf[17]),
 		}
+		fields = append(fields, info)
 	}
 
 	return h, fields, nil
 }
 
-func writeCSVRecords(r io.Reader, w *csv.Writer, h DBFHeader, fields []FieldInfo, enc encoding.Encoding) error {
+func writeRecords(r io.Reader, w *csv.Writer, h DBFHeader, fields []FieldInfo, enc encoding.Encoding) error {
 	recordBuf := make([]byte, h.RecLen)
 	row := make([]string, len(fields))
 	decoder := enc.NewDecoder()
@@ -283,14 +286,9 @@ func writeCSVRecords(r io.Reader, w *csv.Writer, h DBFHeader, fields []FieldInfo
 			return fmt.Errorf("error reading record %d: %w", i, err)
 		}
 
-		// Check deletion flag (Byte 0)
-		// 0x2A ('*') means deleted, 0x20 (' ') means active
-		if recordBuf[0] == 0x2A {
-			// Skip deleted records
-			processed++ // Still counts towards file progress
-			continue
-		}
-
+		// Check deletion flag (Byte 0): 0x2A ('*') means deleted.
+		// We export deleted records as well, but this logic can be modified to skip them.
+		
 		offset := 1 // Start after deletion flag
 		for j, field := range fields {
 			if offset+field.Length > len(recordBuf) {
@@ -299,19 +297,9 @@ func writeCSVRecords(r io.Reader, w *csv.Writer, h DBFHeader, fields []FieldInfo
 
 			// Extract raw bytes for field
 			rawField := recordBuf[offset : offset+field.Length]
-
-			// Trim spaces (DBF pads with spaces)
-			// Trimming must happen *after* decoding ideally, but for GBK/UTF8
-			// spaces are usually safe to trim before if standard ASCII space.
-			// However, correct flow is Decode -> Trim to handle multibyte spaces if any.
-
-			decodedBytes, _, err := transform.Bytes(decoder, rawField)
-			if err != nil {
-				// Fallback to raw bytes if decode fails
-				row[j] = strings.TrimSpace(string(rawField))
-			} else {
-				row[j] = strings.TrimSpace(string(decodedBytes))
-			}
+			
+			// Parse data based on VFP/DBF field types
+			row[j] = parseFieldData(rawField, field, decoder)
 
 			offset += field.Length
 		}
@@ -330,4 +318,105 @@ func writeCSVRecords(r io.Reader, w *csv.Writer, h DBFHeader, fields []FieldInfo
 		fmt.Printf("  >> Exported %d / %d ...\n", processed, h.NumRecs)
 	}
 	return nil
+}
+
+// parseFieldData converts raw bytes to string based on DBF field type.
+// Supports VFP specific types (Integer, Currency, Double, DateTime).
+func parseFieldData(raw []byte, f FieldInfo, decoder *encoding.Decoder) string {
+	switch f.Type {
+	case 'I': // Integer (4 bytes, Little Endian) - VFP
+		if len(raw) == 4 {
+			val := int32(binary.LittleEndian.Uint32(raw))
+			return fmt.Sprintf("%d", val)
+		}
+		return ""
+
+	case 'Y': // Currency (8 bytes, int64 scaled by 10000) - VFP
+		if len(raw) == 8 {
+			val := int64(binary.LittleEndian.Uint64(raw))
+			return fmt.Sprintf("%.4f", float64(val)/10000.0)
+		}
+		return ""
+
+	case 'B': // Double (8 bytes IEEE 754) - VFP
+		if len(raw) == 8 {
+			bits := binary.LittleEndian.Uint64(raw)
+			val := math.Float64frombits(bits)
+			return fmt.Sprintf("%v", val)
+		}
+		return ""
+
+	case 'T': // DateTime (8 bytes) - VFP
+		if len(raw) == 8 {
+			julianDay := binary.LittleEndian.Uint32(raw[:4])
+			millis := binary.LittleEndian.Uint32(raw[4:])
+			
+			if julianDay == 0 && millis == 0 {
+				return ""
+			}
+			t := julianDayToTime(int(julianDay), int(millis))
+			return t.Format("2006-01-02 15:04:05")
+		}
+		return ""
+
+	case 'D': // Date (ASCII YYYYMMDD)
+		s := string(raw)
+		if len(s) == 8 && strings.TrimSpace(s) != "" {
+			return fmt.Sprintf("%s-%s-%s", s[0:4], s[4:6], s[6:8])
+		}
+		return strings.TrimSpace(s)
+
+	case 'L': // Logical
+		s := strings.ToUpper(string(raw))
+		if s == "Y" || s == "T" {
+			return "TRUE"
+		} else if s == "N" || s == "F" {
+			return "FALSE"
+		}
+		return ""
+
+	case 'M', 'G': // Memo / General (OLE)
+		// Data stored in external .fpt/.dbt file. 
+		// This converter only handles the main .dbf file.
+		return "[MEMO/OLE]"
+
+	case 'F', 'N': // Numeric / Float (ASCII)
+		return strings.TrimSpace(string(raw))
+
+	default: // Character (C) and others
+		// Optimization: Decode first, THEN trim.
+		// Trimming raw bytes before decoding corrupts multi-byte encodings (like GBK)
+		// where a trailing byte might legally be 0x20.
+		
+		// 1. Decode bytes using specified encoding
+		decodedBytes, _, err := transform.Bytes(decoder, raw)
+		strVal := ""
+		if err != nil {
+			// Fallback to raw string if decoding fails
+			strVal = string(raw)
+		} else {
+			strVal = string(decodedBytes)
+		}
+		
+		// 2. Remove VFP null terminators and surrounding spaces
+		return strings.TrimSpace(strings.TrimRight(strVal, "\x00"))
+	}
+}
+
+// julianDayToTime converts VFP Julian Day + Milliseconds to Go Time.
+// Algorithm based on Fliegel and Van Flandern (1968).
+func julianDayToTime(jd int, millis int) time.Time {
+	l := jd + 68569
+	n := (4 * l) / 146097
+	l = l - (146097*n+3)/4
+	i := (4000 * (l + 1)) / 1461001
+	l = l - (1461*i)/4 + 31
+	j := (80 * l) / 2447
+	d := l - (2447*j)/80
+	l = j / 11
+	m := j + 2 - 12*l
+	y := 100*(n-49) + i + l
+
+	seconds := millis / 1000
+	return time.Date(y, time.Month(m), d, 0, 0, 0, 0, time.UTC).Add(time.Duration(seconds) * time.Second)
 }

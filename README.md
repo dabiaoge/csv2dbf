@@ -1,9 +1,10 @@
-# csv2dbf & dbf2csv, programs that convert between CSV and DBF (dBase III) formats.
+# csv2dbf & dbf2csv, programs that convert between CSV and DBF formats.
+- csv2dbf: support xBase III only.
+- dbf2csv: support xBase III/IV/VII, xFoxPro. 
 -----------------------------------------------------------------------------
 # csv2dbf
 ```text
 CSV2DBF Converter
-Version: 1.2.1
 Author : dabioage
 
 Usage: csv2dbf [options] <csv_file1> [csv_file2] ...
@@ -31,7 +32,6 @@ Examples:
 # dbf2csv
 ```text
 DBF2CSV Converter
-Version: 1.2.0
 Author : dabiaoge
 
 Usage: dbf2csv [options] <dbf_file1> [dbf_file2] ...
