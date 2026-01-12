@@ -177,8 +177,12 @@ func convertDBFtoCSV(dbfPath string, comma rune, enc encoding.Encoding) error {
 	}
 	defer csvFile.Close()
 
+
+	encodedWriter := transform.NewWriter(csvFile, enc.NewEncoder())
+
 	// Setup CSV Writer with buffer
-	bufWriter := bufio.NewWriterSize(csvFile, 4*1024*1024)
+
+	bufWriter := bufio.NewWriterSize(encodedWriter, 4*1024*1024)
 	w := csv.NewWriter(bufWriter)
 	w.Comma = comma
 
