@@ -1,0 +1,10 @@
+# Binaries
+/bin/
+*.exe
+*.dll
+*.so
+*.dylib
+
+# Editor directories
+.vscode/
+.idea/
