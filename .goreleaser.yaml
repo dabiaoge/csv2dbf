@@ -32,10 +32,10 @@ builds:
       - arm64
 
 archives:
-  - format: tar.gz
+  - format: [ 'tar.gz' ]
     format_overrides:
       - goos: windows
-        format: zip
+        format: [ 'zip' ]
     name_template: >-
       {{ .ProjectName }}_
       {{- .Version }}_
