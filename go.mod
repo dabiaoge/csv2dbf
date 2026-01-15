@@ -1,4 +1,4 @@
-module csv2dbf
+module github.com/dabiaoge/csv2dbf
 
 go 1.25.5
 
