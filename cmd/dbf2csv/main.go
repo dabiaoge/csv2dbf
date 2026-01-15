@@ -32,7 +32,7 @@ var (
 
 // Constants for program info
 const (
-	AppVersion = "1.5.0"
+	AppVersion = "1.6.0"
 	AppAuthor  = "dabiaoge"
 )
 
@@ -177,7 +177,6 @@ func convertDBFtoCSV(dbfPath string, comma rune, enc encoding.Encoding) error {
 	}
 	defer csvFile.Close()
 
-
 	encodedWriter := transform.NewWriter(csvFile, enc.NewEncoder())
 
 	// Setup CSV Writer with buffer
@@ -292,7 +291,7 @@ func writeRecords(r io.Reader, w *csv.Writer, h DBFHeader, fields []FieldInfo, e
 
 		// Check deletion flag (Byte 0): 0x2A ('*') means deleted.
 		// We export deleted records as well, but this logic can be modified to skip them.
-		
+
 		offset := 1 // Start after deletion flag
 		for j, field := range fields {
 			if offset+field.Length > len(recordBuf) {
@@ -301,7 +300,7 @@ func writeRecords(r io.Reader, w *csv.Writer, h DBFHeader, fields []FieldInfo, e
 
 			// Extract raw bytes for field
 			rawField := recordBuf[offset : offset+field.Length]
-			
+
 			// Parse data based on VFP/DBF field types
 			row[j] = parseFieldData(rawField, field, decoder)
 
@@ -354,7 +353,7 @@ func parseFieldData(raw []byte, f FieldInfo, decoder *encoding.Decoder) string {
 		if len(raw) == 8 {
 			julianDay := binary.LittleEndian.Uint32(raw[:4])
 			millis := binary.LittleEndian.Uint32(raw[4:])
-			
+
 			if julianDay == 0 && millis == 0 {
 				return ""
 			}
@@ -380,7 +379,7 @@ func parseFieldData(raw []byte, f FieldInfo, decoder *encoding.Decoder) string {
 		return ""
 
 	case 'M', 'G': // Memo / General (OLE)
-		// Data stored in external .fpt/.dbt file. 
+		// Data stored in external .fpt/.dbt file.
 		// This converter only handles the main .dbf file.
 		return "[MEMO/OLE]"
 
@@ -391,7 +390,7 @@ func parseFieldData(raw []byte, f FieldInfo, decoder *encoding.Decoder) string {
 		// Optimization: Decode first, THEN trim.
 		// Trimming raw bytes before decoding corrupts multi-byte encodings (like GBK)
 		// where a trailing byte might legally be 0x20.
-		
+
 		// 1. Decode bytes using specified encoding
 		decodedBytes, _, err := transform.Bytes(decoder, raw)
 		strVal := ""
@@ -401,7 +400,7 @@ func parseFieldData(raw []byte, f FieldInfo, decoder *encoding.Decoder) string {
 		} else {
 			strVal = string(decodedBytes)
 		}
-		
+
 		// 2. Remove VFP null terminators and surrounding spaces
 		return strings.TrimSpace(strings.TrimRight(strVal, "\x00"))
 	}
