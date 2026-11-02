@@ -10,7 +10,7 @@ Author : dabiaoge
 Usage: csv2dbf.exe [options] <csv_file1> [csv_file2] ...
 
 Options:
-  -c int
+  -n int
         Show progress every N rows (default 0, disable output)
   -e string
         Encoding (GBK, GB18030, UTF-8) (default "GBK")
@@ -23,7 +23,7 @@ Options:
 
 Examples:
   csv2dbf.exe data.csv
-  csv2dbf.exe -e GBK -c 5000 data.csv
+  csv2dbf.exe -e GBK -n 10000 data.csv
   csv2dbf.exe -f '|' data.csv
 ```
 
@@ -37,7 +37,7 @@ Author : dabiaoge
 Usage: dbf2csv.exe [options] <dbf_file1> [dbf_file2] ...
 
 Options:
-  -c int
+  -n int
         Show progress every N rows (default 0, disable output)
   -e string
         Source DBF Encoding (GBK, GB18030, UTF-8) (default "GBK")
@@ -50,6 +50,6 @@ Options:
 
 Examples:
   dbf2csv.exe data.dbf
-  dbf2csv.exe -e GBK -c 5000 data.dbf
+  dbf2csv.exe -e GBK -n 10000 data.dbf
   dbf2csv.exe -f '|' data.dbf
 ```
