@@ -63,7 +63,7 @@ func init() {
 	flag.StringVar(&flagDelimiter, "f", ",", "Output field delimiter (single char)")
 	flag.StringVar(&flagQuote, "q", "\"", "Quote character")
 	flag.StringVar(&flagNewline, "l", "\n", "Output line ending (e.g. \"\\n\", \"\\r\\n\")")
-	flag.StringVar(&flagEncoding, "e", "GBK", "Source DBF Encoding (UTF-8, GBK, GB18030)")
+	flag.StringVar(&flagEncoding, "e", "GBK", "Source DBF Encoding (GBK, GB18030, UTF-8)")
 	flag.IntVar(&flagProgress, "c", 0, "Show progress every N rows (default 0, disable output)")
 
 	// Custom usage message
