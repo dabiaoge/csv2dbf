@@ -30,7 +30,7 @@ var (
 
 // Constants for program info and FoxPro 2.5 limits
 const (
-	AppVersion = "1.8.0"
+	AppVersion = "1.8.2"
 	AppAuthor  = "dabiaoge"
 
 	// FoxPro 2.5 specification constants
@@ -79,7 +79,7 @@ func init() {
 	flag.StringVar(&flagQuote, "q", "\"", "Quote character")
 	flag.StringVar(&flagNewline, "l", "\n", "Line ending (e.g. \"\\n\", \"\\r\\n\")")
 	flag.StringVar(&flagEncoding, "e", "GBK", "Encoding (GBK, GB18030, UTF-8)")
-	flag.IntVar(&flagProgress, "c", 0, "Show progress every N rows (default 0, disable output)")
+	flag.IntVar(&flagProgress, "n", 0, "Show progress every N rows (default 0, disable output)")
 
 	// Custom usage message
 	flag.Usage = func() {
@@ -91,7 +91,7 @@ func init() {
 		flag.PrintDefaults()
 		fmt.Println("\nExamples:")
 		fmt.Printf("  %s data.csv\n", os.Args[0])
-		fmt.Printf("  %s -e GBK -c 5000 data.csv\n", os.Args[0])
+		fmt.Printf("  %s -e GBK -n 5000 data.csv\n", os.Args[0])
 		fmt.Printf("  %s -f '|' data.csv\n", os.Args[0])
 	}
 }
