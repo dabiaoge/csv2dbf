@@ -76,7 +76,7 @@ func init() {
 		flag.PrintDefaults()
 		fmt.Println("\nExamples:")
 		fmt.Printf("  %s data.dbf\n", os.Args[0])
-		fmt.Printf("  %s -e GBK -n 5000 data.dbf\n", os.Args[0])
+		fmt.Printf("  %s -e GBK -n 10000 data.dbf\n", os.Args[0])
 		fmt.Printf("  %s -f '|' data.dbf\n", os.Args[0])
 	}
 }
