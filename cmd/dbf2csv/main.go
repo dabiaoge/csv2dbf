@@ -32,7 +32,7 @@ var (
 
 // Constants for program info
 const (
-	AppVersion = "1.8.0"
+	AppVersion = "1.8.2"
 	AppAuthor  = "dabiaoge"
 )
 
@@ -64,7 +64,7 @@ func init() {
 	flag.StringVar(&flagQuote, "q", "\"", "Quote character")
 	flag.StringVar(&flagNewline, "l", "\n", "Output line ending (e.g. \"\\n\", \"\\r\\n\")")
 	flag.StringVar(&flagEncoding, "e", "GBK", "Source DBF Encoding (GBK, GB18030, UTF-8)")
-	flag.IntVar(&flagProgress, "c", 0, "Show progress every N rows (default 0, disable output)")
+	flag.IntVar(&flagProgress, "n", 0, "Show progress every N rows (default 0, disable output)")
 
 	// Custom usage message
 	flag.Usage = func() {
@@ -76,7 +76,7 @@ func init() {
 		flag.PrintDefaults()
 		fmt.Println("\nExamples:")
 		fmt.Printf("  %s data.dbf\n", os.Args[0])
-		fmt.Printf("  %s -e GBK -c 5000 data.dbf\n", os.Args[0])
+		fmt.Printf("  %s -e GBK -n 5000 data.dbf\n", os.Args[0])
 		fmt.Printf("  %s -f '|' data.dbf\n", os.Args[0])
 	}
 }
