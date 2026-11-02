@@ -9,6 +9,11 @@ builds:
     binary: csv2dbf
     env:
       - CGO_ENABLED=0
+    flags:
+      - -trimpath
+    ldflags:
+      - -s
+      - -w
     goos:
       - linux
       - windows
@@ -23,6 +28,11 @@ builds:
     binary: dbf2csv
     env:
       - CGO_ENABLED=0
+    flags:
+      - -trimpath
+    ldflags:
+      - -s
+      - -w
     goos:
       - linux
       - windows

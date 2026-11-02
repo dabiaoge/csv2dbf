@@ -28,32 +28,41 @@ var (
 	flagProgress  int // [New] Control progress reporting interval
 )
 
-// Constants for program info
+// Constants for program info and FoxPro 2.5 limits
 const (
-	AppVersion = "1.7.0"
-	AppAuthor  = "dabioage"
+	AppVersion = "1.8.0"
+	AppAuthor  = "dabiaoge"
+
+	// FoxPro 2.5 specification constants
+	FoxProVersionNoMemo = 0x03     // FoxPro 2.x table without memo file
+	MaxFoxProFields     = 255      // Maximum number of fields allowed in FoxPro 2.5
+	MaxFoxProRecordLen  = 65504    // Maximum record length in FoxPro 2.5
+	MaxCharFieldLen     = 254      // Maximum character field width in FoxPro 2.5
 )
 
-// DBFHeader represents the file header structure (32 bytes)
+// DBFHeader represents the FoxPro 2.5 file header structure (32 bytes)
 type DBFHeader struct {
-	Version   byte     // 0-0
-	Year      byte     // 1-1 (Year - 1900)
-	Month     byte     // 2-2
-	Day       byte     // 3-3
-	NumRecs   uint32   // 4-7
-	HeaderLen uint16   // 8-9 (32 + 32*n + 1)
-	RecLen    uint16   // 10-11
-	Reserved  [20]byte // 12-31
+	Version   byte     // 0-0: 0x03 for FoxPro 2.x without memo
+	Year      byte     // 1-1: Year - 1900
+	Month     byte     // 2-2: Month (1-12)
+	Day       byte     // 3-3: Day (1-31)
+	NumRecs   uint32   // 4-7: Total number of records in table
+	HeaderLen uint16   // 8-9: Header size in bytes (32 + 32*n + 1)
+	RecLen    uint16   // 10-11: Length of each record in bytes (including delete flag)
+	Reserved1 [16]byte // 12-27: Reserved bytes in FoxPro 2.x
+	TableFlag byte     // 28-28: Table flags (0x01: has CDX, 0x00: standard)
+	CodePage  byte     // 29-29: Code page mark / language driver ID
+	Reserved2 [2]byte  // 30-31: Reserved
 }
 
-// DBFField represents the field descriptor structure (32 bytes)
+// DBFField represents the FoxPro 2.5 field descriptor structure (32 bytes)
 type DBFField struct {
-	Name      [11]byte // 0-10
-	Type      byte     // 11-11
-	Reserved  [4]byte  // 12-15
-	Len       byte     // 16-16
-	Dec       byte     // 17-17
-	Reserved2 [14]byte // 18-31
+	Name      [11]byte // 0-10: Field name (max 10 chars, null-terminated)
+	Type      byte     // 11-11: Field type ('C', 'N', 'L', 'D', 'M', etc.)
+	Reserved1 [4]byte  // 12-15: Field data address in memory (reserved in file)
+	Len       byte     // 16-16: Field length (binary representation)
+	Dec       byte     // 17-17: Decimal count
+	Reserved2 [14]byte // 18-31: Reserved for FoxPro / dBASE
 }
 
 // FieldInfo holds internal metadata for a column
@@ -69,7 +78,7 @@ func init() {
 	flag.StringVar(&flagDelimiter, "f", ",", "Field delimiter (single char)")
 	flag.StringVar(&flagQuote, "q", "\"", "Quote character")
 	flag.StringVar(&flagNewline, "l", "\n", "Line ending (e.g. \"\\n\", \"\\r\\n\")")
-	flag.StringVar(&flagEncoding, "e", "UTF-8", "Encoding (UTF-8, GBK, GB18030)")
+	flag.StringVar(&flagEncoding, "e", "GBK", "Encoding (GBK, GB18030, UTF-8)")
 	flag.IntVar(&flagProgress, "c", 0, "Show progress every N rows (default 0, disable output)")
 
 	// Custom usage message
@@ -175,6 +184,17 @@ func getEncoding(name string) encoding.Encoding {
 	}
 }
 
+// getFoxProCodePageId maps user-specified encoding name to FoxPro 2.5 Code Page Identifier
+func getFoxProCodePageId(encName string) byte {
+	encName = strings.ToLower(strings.TrimSpace(encName))
+	switch encName {
+	case "gbk", "gb2312", "gb18030":
+		return 0x7A // Simplified Chinese Windows (CP936)
+	default:
+		return 0x01 // US MS-DOS (CP437) or default OEM
+	}
+}
+
 func convertCSVtoDBF(csvPath string, comma rune, quote rune, enc encoding.Encoding) error {
 	// --- Pass 1: Analyze Structure ---
 	fmt.Println("  [1/2] Analyzing field structure...")
@@ -186,6 +206,11 @@ func convertCSVtoDBF(csvPath string, comma rune, quote rune, enc encoding.Encodi
 
 	if len(fields) == 0 {
 		return fmt.Errorf("no fields found in CSV")
+	}
+
+	// Validate FoxPro 2.5 column count limit
+	if len(fields) > MaxFoxProFields {
+		return fmt.Errorf("field count (%d) exceeds FoxPro 2.5 maximum limit of %d", len(fields), MaxFoxProFields)
 	}
 
 	// --- Prepare DBF File ---
@@ -209,7 +234,7 @@ func convertCSVtoDBF(csvPath string, comma rune, quote rune, enc encoding.Encodi
 		return err
 	}
 
-	// Write EOF marker
+	// Write FoxPro EOF marker (0x1A)
 	if err := writer.WriteByte(0x1A); err != nil {
 		return err
 	}
@@ -284,9 +309,10 @@ func analyzeCSV(filename string, comma rune, quote rune, enc encoding.Encoding) 
 		count++
 	}
 
+	// Restrict length to FoxPro 2.5 maximum Character field width (254 bytes)
 	for i := range fields {
-		if fields[i].Length > 254 {
-			fields[i].Length = 254
+		if fields[i].Length > MaxCharFieldLen {
+			fields[i].Length = MaxCharFieldLen
 		}
 	}
 
@@ -298,6 +324,7 @@ func safeTruncateName(name string, enc encoding.Encoding) [11]byte {
 	encoder := enc.NewEncoder()
 	b, _, _ := transform.Bytes(encoder, []byte(name))
 
+	// In FoxPro 2.5, field names cannot exceed 10 characters and must end with 0x00
 	if len(b) > 10 {
 		b = b[:10]
 	}
@@ -307,19 +334,29 @@ func safeTruncateName(name string, enc encoding.Encoding) [11]byte {
 
 func writeDBFHeader(w *bufio.Writer, fields []FieldInfo, numRecs uint32, enc encoding.Encoding) error {
 	now := time.Now()
-	recLen := uint16(1)
+	recLen := uint16(1) // 1 byte for delete marker
 	for _, f := range fields {
 		recLen += uint16(f.Length)
 	}
 
+	// Validate FoxPro 2.5 record length limit
+	if int(recLen) > MaxFoxProRecordLen {
+		return fmt.Errorf("total record length (%d bytes) exceeds FoxPro 2.5 limit (%d bytes)", recLen, MaxFoxProRecordLen)
+	}
+
+	headerLen := uint16(32 + 32*len(fields) + 1)
+
+	// Populate standard FoxPro 2.5 DBF Header
 	h := DBFHeader{
-		Version:   0x03,
+		Version:   FoxProVersionNoMemo,
 		Year:      byte(now.Year() - 1900),
 		Month:     byte(now.Month()),
 		Day:       byte(now.Day()),
 		NumRecs:   numRecs,
-		HeaderLen: uint16(32 + 32*len(fields) + 1),
+		HeaderLen: headerLen,
 		RecLen:    recLen,
+		TableFlag: 0x00, // 0x00: Standard FoxPro 2.5 table without structural CDX
+		CodePage:  getFoxProCodePageId(flagEncoding),
 	}
 
 	if err := binary.Write(w, binary.LittleEndian, &h); err != nil {
@@ -338,6 +375,7 @@ func writeDBFHeader(w *bufio.Writer, fields []FieldInfo, numRecs uint32, enc enc
 		}
 	}
 
+	// Write FoxPro header terminator byte
 	return w.WriteByte(0x0D)
 }
 
@@ -373,7 +411,7 @@ func writeDBFRecords(csvPath string, w *bufio.Writer, fields []FieldInfo, total 
 		}
 
 		fillSpace(recordBuf)
-		recordBuf[0] = ' ' // Not deleted
+		recordBuf[0] = ' ' // FoxPro record delete flag: 0x20 (' ') for active, 0x2A ('*') for deleted
 
 		offset := 1
 		for i, field := range fields {

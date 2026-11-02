@@ -32,7 +32,7 @@ var (
 
 // Constants for program info
 const (
-	AppVersion = "1.7.0"
+	AppVersion = "1.8.0"
 	AppAuthor  = "dabiaoge"
 )
 
@@ -50,10 +50,12 @@ type DBFHeader struct {
 
 // FieldInfo holds internal metadata for a column
 type FieldInfo struct {
-	Name   string
-	Type   byte
-	Length int
-	Dec    int
+	Name       string
+	Type       byte
+	Length     int
+	Dec        int
+	IsNullable bool // True if field accepts NULL values
+	NullIndex  int  // 0-based bit index in the trailing null bitmask (-1 if not nullable)
 }
 
 func init() {
@@ -61,7 +63,7 @@ func init() {
 	flag.StringVar(&flagDelimiter, "f", ",", "Output field delimiter (single char)")
 	flag.StringVar(&flagQuote, "q", "\"", "Quote character")
 	flag.StringVar(&flagNewline, "l", "\n", "Output line ending (e.g. \"\\n\", \"\\r\\n\")")
-	flag.StringVar(&flagEncoding, "e", "UTF-8", "Source DBF Encoding (UTF-8, GBK, GB18030)")
+	flag.StringVar(&flagEncoding, "e", "GBK", "Source DBF Encoding (UTF-8, GBK, GB18030)")
 	flag.IntVar(&flagProgress, "c", 0, "Show progress every N rows (default 0, disable output)")
 
 	// Custom usage message
@@ -180,7 +182,6 @@ func convertDBFtoCSV(dbfPath string, comma rune, enc encoding.Encoding) error {
 	encodedWriter := transform.NewWriter(csvFile, enc.NewEncoder())
 
 	// Setup CSV Writer with buffer
-
 	bufWriter := bufio.NewWriterSize(encodedWriter, 4*1024*1024)
 	w := csv.NewWriter(bufWriter)
 	w.Comma = comma
@@ -231,6 +232,7 @@ func readStructure(r io.Reader, enc encoding.Encoding) (DBFHeader, []FieldInfo, 
 	var fields []FieldInfo
 	decoder := enc.NewDecoder()
 	maxFields := 4096 // Safety limit to prevent infinite loops on corrupted files
+	nullFieldIndex := 0
 
 	for i := 0; i < maxFields; i++ {
 		// Read first byte to check for terminator (0x0D)
@@ -258,13 +260,24 @@ func readStructure(r io.Reader, enc encoding.Encoding) (DBFHeader, []FieldInfo, 
 		// Use decoder for field names (usually ASCII, but helps with specific encodings)
 		nameStr, _, _ := transform.Bytes(decoder, rawName)
 
+		// Byte 18: Field Flags in VFP (0x02 indicates field allows NULL values)
+		flags := fieldBuf[18]
+		isNullable := (flags & 0x02) != 0
+		nullIdx := -1
+		if isNullable {
+			nullIdx = nullFieldIndex
+			nullFieldIndex++
+		}
+
 		// Create field info
 		// Byte 11: Type, Byte 16: Length, Byte 17: Decimal count
 		info := FieldInfo{
-			Name:   string(nameStr),
-			Type:   fieldBuf[11],
-			Length: int(fieldBuf[16]),
-			Dec:    int(fieldBuf[17]),
+			Name:       string(nameStr),
+			Type:       fieldBuf[11],
+			Length:     int(fieldBuf[16]),
+			Dec:        int(fieldBuf[17]),
+			IsNullable: isNullable,
+			NullIndex:  nullIdx,
 		}
 		fields = append(fields, info)
 	}
@@ -279,6 +292,17 @@ func writeRecords(r io.Reader, w *csv.Writer, h DBFHeader, fields []FieldInfo, e
 
 	var processed uint32
 
+	// Calculate data bytes offset and null bitmask location
+	// Data starts after 1-byte deletion flag (index 1)
+	dataLen := 1
+	for _, f := range fields {
+		dataLen += f.Length
+	}
+
+	// In VFP, the null byte array is appended right after all standard field data
+	nullByteOffset := dataLen
+	hasNullBytes := nullByteOffset < int(h.RecLen)
+
 	for i := uint32(0); i < h.NumRecs; i++ {
 		// Read exact record length
 		_, err := io.ReadFull(r, recordBuf)
@@ -290,12 +314,32 @@ func writeRecords(r io.Reader, w *csv.Writer, h DBFHeader, fields []FieldInfo, e
 		}
 
 		// Check deletion flag (Byte 0): 0x2A ('*') means deleted.
-		// We export deleted records as well, but this logic can be modified to skip them.
+		// Skip deleted records during CSV export.
+		if recordBuf[0] == 0x2A {
+			continue
+		}
+
+		// Extract trailing null bitmask if present
+		var nullBytes []byte
+		if hasNullBytes {
+			nullBytes = recordBuf[nullByteOffset:]
+		}
 
 		offset := 1 // Start after deletion flag
 		for j, field := range fields {
 			if offset+field.Length > len(recordBuf) {
 				break
+			}
+
+			// Check if field is flagged as NULL via VFP null bitmask
+			if field.IsNullable && field.NullIndex >= 0 && nullBytes != nil {
+				bytePos := field.NullIndex / 8
+				bitPos := uint(field.NullIndex % 8)
+				if bytePos < len(nullBytes) && ((nullBytes[bytePos]>>bitPos)&1) == 1 {
+					row[j] = "" // Output empty string for NULL fields
+					offset += field.Length
+					continue
+				}
 			}
 
 			// Extract raw bytes for field
