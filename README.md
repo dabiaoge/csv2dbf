@@ -40,7 +40,7 @@ Options:
   -c int
         Show progress every N rows (default 0, disable output)
   -e string
-        Source DBF Encoding (UTF-8, GBK, GB18030) (default "GBK")
+        Source DBF Encoding (GBK, GB18030, UTF-8) (default "GBK")
   -f string
         Output field delimiter (single char) (default ",")
   -l string
