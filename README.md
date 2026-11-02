@@ -1,4 +1,4 @@
-# csv2dbf & dbf2csv, programs that convert between CSV and DBF formats.
+# csv2dbf & dbf2csv, command-line tools that convert between CSV and DBF formats.
 - csv2dbf: support dBase IV(FoxPro 2.x) only
 - dbf2csv: support dBase III/IV/VII, FoxPro 2.0 - 2.6, Visual FoxPro 3.0 - 9.0
 -----------------------------------------------------------------------------
