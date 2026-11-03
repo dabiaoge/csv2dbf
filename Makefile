@@ -1,6 +1,6 @@
 .PHONY: all build clean
 
-# 默认编译所有工具
+# compile all tools by default
 all: build
 
 build:
