@@ -7,7 +7,7 @@
 CSV2DBF Converter
 Author : dabiaoge
 
-Usage: csv2dbf.exe [options] <csv_file1> [csv_file2] ...
+Usage: csv2dbf [options] <csv_file1> [csv_file2] ...
 
 Options:
   -n int
@@ -22,9 +22,9 @@ Options:
         Quote character (default "\"")
 
 Examples:
-  csv2dbf.exe data.csv
-  csv2dbf.exe -e GBK -n 10000 data.csv
-  csv2dbf.exe -f '|' data.csv
+  csv2dbf data.csv
+  csv2dbf -e GBK -n 10000 data.csv
+  csv2dbf -f '|' data.csv
 ```
 
 -----------------------------------------------------------------------------
@@ -34,7 +34,7 @@ Examples:
 DBF2CSV Converter
 Author : dabiaoge
 
-Usage: dbf2csv.exe [options] <dbf_file1> [dbf_file2] ...
+Usage: dbf2csv [options] <dbf_file1> [dbf_file2] ...
 
 Options:
   -n int
@@ -49,7 +49,7 @@ Options:
         Quote character (default "\"")
 
 Examples:
-  dbf2csv.exe data.dbf
-  dbf2csv.exe -e GBK -n 10000 data.dbf
-  dbf2csv.exe -f '|' data.dbf
+  dbf2csv data.dbf
+  dbf2csv -e GBK -n 10000 data.dbf
+  dbf2csv -f '|' data.dbf
 ```
